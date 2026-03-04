@@ -3,7 +3,7 @@
 ## Write-up (≤200 words)
 This project implements a single-player, turn-based startup simulation (one “turn” = one quarter). The player sets price, hiring, and salary strategy, then advances the quarter to see updated financials, headcount, and an office visualization. All simulation outcomes are computed and persisted server-side so the client can’t fudge the numbers.
 
-One technical decision I stand behind: modeling state as an immutable `quarters` ledger plus a `games` snapshot. The ledger makes the simulation auditable (easy to debug and chart) while the snapshot keeps dashboard reads fast and simple. Both are updated together via a single transactional Postgres function (`advance_game`), which avoids partial writes and keeps the UI consistent.
+One technical decision I stand behind: modeling state as an immutable `quarters` ledger plus a `games` snapshot. The ledger makes it easy to debug and chart history while the snapshot keeps dashboard reads fast and simple. Both are updated together via a single transactional Postgres function (`advance_game`), which avoids partial writes and keeps the UI consistent.
 
 If I had more time, I’d tighten the auth bridge flow so it’s harder to misconfigure across environments and add more robust job scheduling/observability.
 
@@ -19,17 +19,19 @@ Tooling note: `"type": "module"` is intentional. It prevents Node from warning w
 ### Next.js runtime glue
 - `proxy.ts` replaces the deprecated `middleware.ts` convention in Next16+. It refreshes Supabase SSR auth cookies so server routes can reliably read sessions.
 
-### Optional AI convenience endpoint
+### Optional AI workflow (disabled by default)
 AI is optional; the core game loop works without it.
-- `POST /api/ai/notes` generates (and caches) `quarters.ai_summary` for a given quarter. This exists purely so bonus pages can show AI output without manually running the worker.
-- `POST /api/jobs/worker` is the queue-based approach (processes `jobs` of type `ai_summary` and writes `quarters.ai_summary`).
+- `POST /api/ai/notes` generates (and caches) `quarters.ai_summary` for a given quarter.
+- `POST /api/jobs/worker` processes `jobs` of type `ai_summary` and writes `quarters.ai_summary`.
+
+AI is gated behind `ENABLE_AI` (see `lib/envFlags.ts`). When disabled, AI endpoints return `404`.
 
 ## What you get (mapped to the spec)
 - Auth + session persistence: Supabase email/password; server routes authenticate via cookies
-- Quarterly decision panel: price, hires (engineers/sales), salary % (1–200; default 100)
+- Quarterly decision panel: price, hires (engineers/sales), salary % (1–200; default100)
 - Advance turn: `POST /api/game/advance` (server-authoritative)
-- Dashboard: cash, revenue, net income, headcount, current quarter + last 4 quarters history
-- Office visualization: a 30-desk grid that fills by role (E/S); empty desks remain visible
+- Dashboard: cash, revenue, net income, headcount, current quarter + last4 quarters history
+- Office visualization: a30-desk grid that fills by role (E/S); empty desks remain visible
 - Win/lose: lose when a quarter ends with `cash_end <=0`; win when completing Y10 Q4 with `cash_end >0` (win screen includes cumulative profit)
 
 ## Bonus pages (optional)
@@ -43,12 +45,12 @@ They all load the same read-only dashboard payload (`GET /api/game?limit=20`) an
 ## How it works (architecture)
 ### Data model
 - `games`: current snapshot (fast reads for the dashboard)
-- `quarters`: append-only-ish history/ledger (charts + audit trail)
+- `quarters`: immutable-ish history/ledger (charts + analytics)
 - `jobs`: optional background queue (AI summaries only)
 
 ### Server-authoritative turn advance
 - Client submits decisions → `POST /api/game/advance`
-- Server validates inputs (non-negative numbers, hire counts coerced to integers, `salary_pct` must be 1–200)
+- Server validates inputs (non-negative numbers, hire counts coerced to integers, `salary_pct` must be1–200)
 - Server calls a transactional Postgres function `advance_game` which:
  - applies the simulation model in-database
  - inserts a new `quarters` row
@@ -68,11 +70,6 @@ Client-side Supabase sessions live in browser storage, but server routes can’t
 - Server validates/adopts the session via Supabase, then sets Supabase’s auth cookies
 - After that, server endpoints authenticate via `cookies()`
 
-### Integrity hashing
-Each quarter row stores a SHA-256 checksum (`quarters.integrity_hash`).
-- Supabase returns Postgres `NUMERIC` values as strings, so verification normalizes numeric text before hashing.
-- This is an audit signal to detect accidental corruption / unexpected mutation; it’s not a substitute for DB security.
-
 ### Optional: Jobs + worker (AI executive summaries)
 AI summaries are **not required** for the core simulation.
 - Core game requires: `games` + `quarters`
@@ -86,7 +83,7 @@ Worker security:
 - Dev: worker endpoint is callable without a token (demo convenience)
 - Prod: requires `X-Worker-Token: $WORKER_TOKEN` and applies a small rate limit
 
-## Setup (under 5 commands)
+## Setup (under5 commands)
 ### Windows (recommended)
 ```powershell
 ./scripts/launch.ps1
@@ -113,6 +110,9 @@ Server-only:
 - `OPENAI_API_KEY` (optional; only if you want AI summaries)
 - `WORKER_TOKEN` (only required in production for the worker endpoint)
 
+Feature flags:
+- `ENABLE_AI` (default `false`; required to expose AI endpoints)
+
 ## API quick reference
 Core:
 - `POST /api/auth/session` — token → cookie bridge for SSR/server routes
@@ -121,7 +121,7 @@ Core:
 - `POST /api/game/reset` — reset game
 
 Optional (AI):
-- `POST /api/ai/notes` — generate/cache `quarters.ai_summary` (convenience endpoint)
+- `POST /api/ai/notes` — generate/cache `quarters.ai_summary`
 - `POST /api/jobs/worker` — process one queued job
 
 ## Tradeoffs / descopes
