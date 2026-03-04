@@ -21,6 +21,7 @@ Tooling note: `"type": "module"` is intentional. It prevents Node from warning w
 
 ### Optional AI workflow (disabled by default)
 AI is optional; the core game loop works without it.
+
 - `POST /api/ai/notes` generates (and caches) `quarters.ai_summary` for a given quarter.
 - `POST /api/jobs/worker` processes `jobs` of type `ai_summary` and writes `quarters.ai_summary`.
 
@@ -36,13 +37,16 @@ AI is gated behind `ENABLE_AI` (see `lib/envFlags.ts`). When disabled, AI endpoi
 
 ## Bonus pages (optional)
 These pages are **not required by the prompt**, but are included as extra views over the same server-authoritative data.
+
 They all load the same read-only dashboard payload (`GET /api/game?limit=20`) and **do not mutate game state**.
+
 - `/financials` — revenue/net/cash trend views
 - `/staffing` — headcount/payroll views
 - `/operations` — operations-focused view (office + quality/runway)
 - `/history` — run history / ledger browsing
 
 ## How it works (architecture)
+
 ### Data model
 - `games`: current snapshot (fast reads for the dashboard)
 - `quarters`: immutable-ish history/ledger (charts + analytics)
@@ -66,12 +70,14 @@ The UI subscribes to Supabase Realtime Postgres changes, so new quarters / snaps
 
 ### Auth bridge (client tokens → HttpOnly cookies)
 Client-side Supabase sessions live in browser storage, but server routes can’t read that.
+
 - Client calls `POST /api/auth/session` with `{ access_token, refresh_token }`
 - Server validates/adopts the session via Supabase, then sets Supabase’s auth cookies
 - After that, server endpoints authenticate via `cookies()`
 
 ### Optional: Jobs + worker (AI executive summaries)
 AI summaries are **not required** for the core simulation.
+
 - Core game requires: `games` + `quarters`
 - Optional AI summaries use: `jobs` + `quarters.ai_summary`
 
@@ -79,11 +85,11 @@ When enabled:
 - Advancing a quarter enqueues an `ai_summary` job in `jobs`
 - `POST /api/jobs/worker` processes queued jobs and writes `quarters.ai_summary`
 
-Worker security:
-- Dev: worker endpoint is callable without a token (demo convenience)
-- Prod: requires `X-Worker-Token: $WORKER_TOKEN` and applies a small rate limit
+Worker security (when AI is enabled):
+- Production deployments should require `X-Worker-Token: $WORKER_TOKEN` and enforce rate limiting.
 
 ## Setup (under5 commands)
+
 ### Windows (recommended)
 ```powershell
 ./scripts/launch.ps1
@@ -95,12 +101,13 @@ The wizard creates/updates `.env.local`, optionally pushes migrations, and start
 npm install
 cp .env.local.example .env.local
 # edit .env.local with your Supabase keys
-npx supabase link --project-ref <your-project-ref>
+npx supabase link --project-ref <YOUR_PROJECT_REF>
 npx supabase db push --include-all --yes
 npm run dev
 ```
 
 ## Environment variables
+
 Client-safe:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
@@ -114,6 +121,7 @@ Feature flags:
 - `ENABLE_AI` (default `false`; required to expose AI endpoints)
 
 ## API quick reference
+
 Core:
 - `POST /api/auth/session` — token → cookie bridge for SSR/server routes
 - `GET /api/game` — get current game (includes `cumulative_profit`)
