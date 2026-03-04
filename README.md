@@ -139,4 +139,3 @@ Optional (AI):
 ## Known issues / notes
 - Supabase PostgREST schema cache can lag right after migrations; the launch wizard includes retries when verifying tables.
 - `POST /api/close` is a dev-only utility endpoint (returns404 in production).
-- Don’t commit secrets. If you did, rotate them immediately.
