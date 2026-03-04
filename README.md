@@ -92,7 +92,7 @@ Worker security (when AI is enabled):
 
 ### Windows (recommended)
 ```powershell
-./scripts/launch.ps1 -DisallowForce
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\launch.ps1"
 ```
 The wizard creates/updates `.env.local`, optionally pushes migrations, and starts the app.
 
