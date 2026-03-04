@@ -2,7 +2,11 @@
   
   "name": "startup-ops-console",
   
+  "version": "0.0.0",
+  
   "private": true,
+  
+  "type": "module",
   
   "scripts": {
   
@@ -13,7 +17,10 @@
   "build": "next build",
   
     
-  "start": "next start"
+  "start": "next start",
+  
+    
+  "lint": "eslint ."
   
   },
   
@@ -26,7 +33,7 @@
   "@supabase/ssr": "^0.5.2",
   
     
-  "@supabase/supabase-js": "^2.45.4",
+  "@supabase/supabase-js": "2.45.4",
   
     
   "ai": "^6.0.106",
@@ -45,16 +52,37 @@
   "devDependencies": {
   
     
-  "@types/node": "^20.11.30",
+  "@eslint/js": "^9.39.3",
   
     
-  "@types/react": "19.2.14",
+  "@types/node": "^20.19.35",
+  
+    
+  "@types/react": "^18.3.18",
+  
+    
+  "@types/react-dom": "^18.3.5",
+  
+    
+  "@typescript-eslint/eslint-plugin": "^8.56.1",
+  
+    
+  "@typescript-eslint/parser": "^8.56.1",
+  
+    
+  "eslint": "^9.39.3",
+  
+    
+  "eslint-plugin-react-hooks": "^7.0.1",
   
     
   "supabase": "^2.76.15",
   
     
-  "typescript": "^5.5.4"
+  "typescript": "^5.5.4",
+  
+    
+  "typescript-eslint": "^8.56.1"
   
   }
 }

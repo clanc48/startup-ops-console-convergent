@@ -1,8 +1,12 @@
-
 "use client";
-import React from "react";
 
-export function Table({ columns, children }: { columns: string[]; children: React.ReactNode }) {
+import type { ReactNode } from "react";
+
+/**
+ * Minimal table wrapper with a consistent layout.
+ * Used for history/ledger views across the app.
+ */
+export function Table({ columns, children }: { columns: string[]; children: ReactNode }) {
   return (
     <div className="ui-tableWrap">
       <table className="ui-table">

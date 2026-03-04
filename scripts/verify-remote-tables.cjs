@@ -4,11 +4,11 @@
  * Verify remote Supabase tables WITHOUT Docker by using the PostgREST REST API.
  *
  * Usage:
- * node scripts/verify-remote-tables.js
+ * node scripts/verify-remote-tables.cjs
  *
  * Requires `.env.local` with:
- * NEXT_PUBLIC_SUPABASE_URL
- * SUPABASE_SERVICE_ROLE_KEY (preferred) OR NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+ * - NEXT_PUBLIC_SUPABASE_URL
+ * - SUPABASE_SERVICE_ROLE_KEY (preferred) OR NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
  */
 
 const fs = require("fs");
@@ -48,7 +48,9 @@ async function httpGet(url, headers) {
  fileEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
  if (!sbUrl || !apiKey) {
- console.error("Missing NEXT_PUBLIC_SUPABASE_URL or an API key (SUPABASE_SERVICE_ROLE_KEY preferred). Check .env.local");
+ console.error(
+ "Missing NEXT_PUBLIC_SUPABASE_URL or an API key (SUPABASE_SERVICE_ROLE_KEY preferred). Check .env.local"
+ );
  process.exit(2);
  }
 
@@ -68,8 +70,7 @@ async function httpGet(url, headers) {
  process.exit(3);
  }
 
- // We can verify specific required tables without introspection privileges.
- // A HEAD request would be ideal but fetch HEAD + CORS sometimes odd; use GET with limit.
+ // Verify required tables without introspection privileges.
  const required = ["games", "quarters", "jobs"];
 
  let okCount =0;

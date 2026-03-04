@@ -1,3 +1,7 @@
+-- Canonical schema migration (consolidated)
+-- This migration defines the authoritative schema for the take-home submission.
+-- It consolidates earlier iterations into one clear baseline.
+
 create extension if not exists pgcrypto;
 
 create table if not exists public.games (
@@ -46,23 +50,14 @@ create table if not exists public.quarters (
 );
 
 -- Prevent duplicate quarter rows for the same game + run + period.
-do $$
-begin
- if not exists (
- select 1 from pg_constraint
- where conname = 'quarters_unique_game_run_period'
- and conrelid = 'public.quarters'::regclass
- ) then
- alter table public.quarters
- add constraint quarters_unique_game_run_period unique (game_id, run_no, year, quarter);
- end if;
-end$$;
+create unique index if not exists idx_quarters_unique_game_run_period
+ on public.quarters(game_id, run_no, year, quarter);
 
 create index if not exists idx_quarters_game_created on public.quarters(game_id, created_at desc);
 create index if not exists idx_quarters_integrity_hash on public.quarters(integrity_hash);
 create index if not exists idx_quarters_game_run on public.quarters(game_id, run_no, created_at desc);
 
--- Simple jobs table to demonstrate queues/background processing (optional feature)
+-- Optional jobs table (AI summaries only)
 create table if not exists public.jobs (
  id uuid primary key default gen_random_uuid(),
  type text not null,
@@ -86,7 +81,7 @@ create index if not exists idx_jobs_game on public.jobs(game_id);
 
 -- -----------------------------------------------------------------------------
 -- Row Level Security (RLS)
--- -----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
 
 alter table public.games enable row level security;
 alter table public.quarters enable row level security;
@@ -130,9 +125,6 @@ create policy quarters_insert on public.quarters
  )
  );
 
--- NOTE: no `quarters_delete` policy.
--- This keeps the quarters ledger append-only from the perspective of an authenticated user.
-
 -- jobs policies
 
 drop policy if exists jobs_select on public.jobs;
@@ -153,7 +145,8 @@ create policy jobs_delete on public.jobs
 
 -- -----------------------------------------------------------------------------
 -- Atomic advance (transaction) + optimistic locking
--- -----------------------------------------------------------------------------
+-- Implements the prompt's math and constants (hire cost $5,000; salary $30,000/qtr)
+-- ----------------------------------------------------------------------------
 
 create or replace function public.advance_game(
  p_price numeric,
@@ -163,7 +156,7 @@ create or replace function public.advance_game(
 )
 returns table(game jsonb, quarter jsonb)
 language plpgsql
-set search_path = public, extensions
+set search_path = public
 as $$
 declare
  g public.games%rowtype;
@@ -196,7 +189,6 @@ declare
  integrity_payload text;
  integrity_hash text;
 begin
- -- Lock the user's game row to prevent concurrent advances.
  select * into g
  from public.games
  where user_id = auth.uid()
@@ -210,7 +202,6 @@ begin
  raise exception 'GAME_OVER' using errcode = 'P0001';
  end if;
 
- -- Input normalization
  v_price := greatest(0, p_price);
  v_new_eng := greatest(0, p_new_engineers);
  v_new_sales := greatest(0, p_new_sales);
@@ -218,15 +209,6 @@ begin
 
  engineers_end := g.engineers + v_new_eng;
  sales_end := g.sales_staff + v_new_sales;
-
- -- Prompt model:
- -- quality += engineers*0.5 (cap100)
- -- demand = quality*10 - price*0.0001 (floor0)
- -- units = demand*sales_staff*0.5 (integer)
- -- revenue = price*units
- -- payroll = (salary_pct/100*30000)*(engineers+sales)
- -- net = revenue - payroll
- -- cash_end = cash + net - new_hires*5000
 
  quality_end := least(100, greatest(0, floor(g.quality + (engineers_end *0.5))::int));
  demand := greatest(0, (quality_end *10) - (v_price *0.0001));
@@ -241,7 +223,6 @@ begin
  hire_cost := (v_new_eng + v_new_sales) *5000;
  cash_end := cash_end - hire_cost;
 
- -- Advance quarter counters (snapshot)
  next_year := g.year;
  next_quarter := g.quarter +1;
  if next_quarter >4 then
@@ -249,11 +230,9 @@ begin
  next_year := next_year +1;
  end if;
 
- -- Lose: when a quarter ends with cash_end <=0
  if cash_end <=0 then
  v_is_over := true;
  v_ended_reason := 'bankrupt';
- -- Win: when you complete Y10 Q4 with cash_end >0
  elsif (g.year =10 and g.quarter =4) and cash_end >0 then
  v_is_over := true;
  v_ended_reason := 'won';

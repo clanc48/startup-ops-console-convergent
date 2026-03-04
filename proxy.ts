@@ -3,7 +3,13 @@ import { createServerClient } from "@supabase/ssr";
 
 type CookieToSet = { name: string; value: string; options?: Parameters<NextResponse["cookies"]["set"]>[2] };
 
-export async function middleware(req: NextRequest) {
+/**
+ * Next.js16+ uses `proxy.ts` instead of `middleware.ts`.
+ *
+ * This proxy refreshes Supabase SSR auth cookies on each request so server routes
+ * can read the session from HttpOnly cookies.
+ */
+export async function proxy(req: NextRequest) {
  // Create a response we can attach refreshed auth cookies to.
  const res = NextResponse.next({ request: { headers: req.headers } });
 
@@ -31,7 +37,7 @@ export async function middleware(req: NextRequest) {
  return res;
 }
 
-// Avoid running middleware on static assets.
+// Avoid running proxy on static assets.
 export const config = {
  matcher: [
  "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",

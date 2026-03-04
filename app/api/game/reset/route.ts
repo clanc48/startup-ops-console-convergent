@@ -19,35 +19,30 @@ export async function POST() {
  if (gameErr) return new NextResponse(gameErr.message, { status:500 });
  if (!game) return new NextResponse("No game to reset", { status:404 });
 
- // Remove ledger + jobs first, then reset snapshot.
- const { error: qDelErr } = await supabase
- .from("quarters")
- .delete()
- .eq("game_id", game.id);
- if (qDelErr) return new NextResponse(qDelErr.message, { status:500 });
+ const nextRun = Number(game.run_no ??1) +1;
 
- const { error: jDelErr } = await supabase
- .from("jobs")
- .delete()
- .eq("game_id", game.id);
- if (jDelErr) return new NextResponse(jDelErr.message, { status:500 });
-
- const { error: gUpErr } = await supabase
+ // Start a new run by bumping `run_no` and resetting the snapshot in-place.
+ // We intentionally DO NOT delete `quarters` (or `jobs`) so the user can view history.
+ const { data: resetGame, error: resetErr } = await supabase
  .from("games")
  .update({
+ run_no: nextRun,
  year:1,
  quarter:1,
- // Spec defaults
  cash:1_000_000,
  engineers:4,
  sales_staff:2,
  quality:50,
- is_over:false,
- ended_reason:null,
+ is_over: false,
+ // This is the "active" run; ended_reason is only meaningful at end-of-run.
+ ended_reason: null,
+ updated_at: new Date().toISOString(),
  })
- .eq("id", game.id);
+ .eq("id", game.id)
+ .select("*")
+ .single();
 
- if (gUpErr) return new NextResponse(gUpErr.message, { status:500 });
+ if (resetErr) return new NextResponse(resetErr.message, { status:500 });
 
- return NextResponse.json({ ok:true });
+ return NextResponse.json({ ok: true, game: resetGame });
 }

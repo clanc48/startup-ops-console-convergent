@@ -1,7 +1,8 @@
-import crypto from "crypto";
+import * as crypto from "crypto";
 
 export function buildQuarterIntegrityPayloadString(args: {
   game_id: string;
+  run_no?: number;
   year: number;
   quarter: number;
 
@@ -18,10 +19,14 @@ export function buildQuarterIntegrityPayloadString(args: {
   cash_end: string | number;
   quality_end: number;
 }) {
-  // Deterministic, stable payload string (matches the Postgres concat_ws('|', ...) used in advance_game()).
+  // Deterministic, stable payload string.
+  // Matches the Postgres concat_ws('|', ...) used in advance_game().
   // NOTE: This is an integrity checksum (detect accidental corruption), not an anti-tamper mechanism.
-  return [
-    String(args.game_id),
+
+  const parts: string[] = [String(args.game_id)];
+  if (args.run_no !== undefined) parts.push(String(args.run_no));
+
+  parts.push(
     String(args.year),
     String(args.quarter),
 
@@ -36,8 +41,10 @@ export function buildQuarterIntegrityPayloadString(args: {
     String(args.payroll),
     String(args.net_income),
     String(args.cash_end),
-    String(args.quality_end),
-  ].join("|");
+    String(args.quality_end)
+  );
+
+  return parts.join("|");
 }
 
 export function computeIntegrityHash(payload: string): string {

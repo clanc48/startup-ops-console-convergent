@@ -22,7 +22,7 @@ function normalizeNumericText(v: any): string {
 export function verifyQuarterRow(q: QuarterRow): boolean {
   if (!q.integrity_hash) return false;
 
-  const payload = buildQuarterIntegrityPayloadString({
+  const baseArgs = {
     game_id: String(q.game_id),
     year: Number(q.year),
     quarter: Number(q.quarter),
@@ -41,8 +41,19 @@ export function verifyQuarterRow(q: QuarterRow): boolean {
     net_income: normalizeNumericText(q.net_income),
     cash_end: normalizeNumericText(q.cash_end),
     quality_end: Number(q.quality_end),
-  });
+  };
 
-  const expected = computeIntegrityHash(payload);
-  return expected === q.integrity_hash;
+  // Current format (includes run_no).
+  const runNo = (q as any).run_no;
+  if (runNo !== undefined && runNo !== null) {
+    const payload = buildQuarterIntegrityPayloadString({
+      ...baseArgs,
+      run_no: Number(runNo),
+    });
+    if (computeIntegrityHash(payload) === q.integrity_hash) return true;
+  }
+
+  // Legacy format (no run_no).
+  const legacyPayload = buildQuarterIntegrityPayloadString(baseArgs);
+  return computeIntegrityHash(legacyPayload) === q.integrity_hash;
 }

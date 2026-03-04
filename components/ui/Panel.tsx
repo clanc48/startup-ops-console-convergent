@@ -1,8 +1,7 @@
-
 "use client";
-import React from "react";
+import type { ReactNode } from "react";
 
-export function Panel({ children }: { children: React.ReactNode }) {
+export function Panel({ children }: { children: ReactNode }) {
   return <div className="ui-panel">{children}</div>;
 }
 
@@ -13,7 +12,7 @@ Panel.Header = function PanelHeader({
 }: {
   title: string;
   subtitle?: string;
-  right?: React.ReactNode;
+  right?: ReactNode;
 }) {
   return (
     <div className="ui-panelHead">
@@ -26,6 +25,6 @@ Panel.Header = function PanelHeader({
   );
 };
 
-Panel.Body = function PanelBody({ children }: { children: React.ReactNode }) {
+Panel.Body = function PanelBody({ children }: { children: ReactNode }) {
   return <div className="ui-panelBody">{children}</div>;
 };

@@ -1,4 +1,3 @@
-
 :root {
   --bg: #0b1220;
   --fg: #e9edf5;
@@ -23,17 +22,29 @@
 
 .ui-shell { min-height: 100vh; background: var(--bg); color: var(--fg); }
 .ui-layout { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 64px); }
-.ui-content { padding: 18px; }
+.ui-layout.collapsed { grid-template-columns: 0px 1fr; }
+
+/* Sidebar only: collapse slot, do not affect content */
+.ui-sidebarSlot { min-width: 0; overflow: hidden; display:flex; flex-direction: column; }
+.ui-layout.collapsed .ui-sidebarSlot { width: 0; padding: 0; border: 0; overflow: hidden; }
+
+.ui-content { padding: 18px; padding-right: 66px; }
 .ui-stack { display: grid; gap: 14px; }
 .ui-grid { display: grid; gap: 14px; }
 .ui-grid.kpi { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .ui-grid.main { grid-template-columns: 1.2fr .8fr; align-items: start; }
+.ui-grid.alt { align-items: start; }
+.ui-sidebarSlot { min-width: 0; }
 
 @media (max-width: 1100px) {
   .ui-layout { grid-template-columns: 1fr; }
   .ui-sidebar { display: none; }
   .ui-grid.kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ui-grid.main { grid-template-columns: 1fr; }
+  .ui-sidebarToggleRow { display: none; }
+  .ui-sidebarSlot { display: none; }
+  .ui-content { padding: 14px; padding-right: 14px; }
+  .ui-layout.collapsed .ui-content { padding-left: 14px; }
 }
 
 .ui-topbar {
@@ -43,7 +54,7 @@
 }
 .ui-brand { display: flex; gap: 12px; align-items: center; }
 .ui-logo {
-  width: 38px; height: 38px; display: grid; place-items: center;
+  width: 38px; height: 38px; display: grid, place-items: center;
   border-radius: 10px; background: rgba(255,255,255,.08);
   border: 1px solid rgba(255,255,255,.12); font-weight: 800;
 }
@@ -56,6 +67,12 @@
   padding: 16px;
   background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
 }
+.ui-sidebarToggleRow {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+.ui-sidebarToggleBottom { margin-top:auto; padding-top:12px; border-top:1px solid var(--border2); }
 .ui-navTitle { font-size: 12px; color: var(--muted2); margin-bottom: 10px; letter-spacing: .6px; text-transform: uppercase; }
 .ui-nav { display: grid; gap: 6px; }
 .ui-navItem {
@@ -127,3 +144,30 @@
 
 .ui-muted { color: var(--muted); }
 .ui-divider { height: 1px; background: var(--border2); margin: 12px 0; }
+
+/* Split70/30 row (desktop) */
+.ui-grid.split7030 { grid-template-columns:1.2fr .8fr; align-items: start; }
+
+/* Floating reopen icon (shown when sidebar collapsed) */
+.ui-sidebarReopen {
+ position: fixed;
+ top:74px;
+ left:12px;
+ z-index:50;
+ width:40px;
+ height:40px;
+ border-radius:12px;
+ background: rgba(255,255,255,.08);
+ border:1px solid rgba(255,255,255,.14);
+ color: var(--fg);
+ cursor: pointer;
+}
+
+/* When sidebar is collapsed, add left inset so the reopen icon doesn't overlap */
+.ui-layout.collapsed .ui-content {
+ padding-left:66px;
+}
+
+@media (max-width:1100px) {
+ .ui-layout.collapsed .ui-content { padding-left:14px; }
+}

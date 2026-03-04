@@ -145,9 +145,8 @@ export default function GamePage() {
   async function resetGame() {
     if (!payload?.game) return;
 
-    // Confirm because this is destructive.
     const ok = window.confirm(
-      "This will permanently delete your quarter history and queued jobs, and reset the game back to Year1 Quarter1. Continue?"
+      "This will archive your current run (keeps history for the History page) and start a new run at Year1 Quarter1. Continue?"
     );
     if (!ok) return;
 
@@ -220,12 +219,12 @@ export default function GamePage() {
               Refresh
             </Button>
 
-            {/* Destructive action: wipe and restart */}
+            {/* Destructive action: archive current run and start a new one */}
             <Button
               variant="ghost"
               onClick={resetGame}
               disabled={loading || busyAdvance || busyReset}
-              title="Wipe the ledger and restart the game"
+              title="Archive this run and start a new run"
             >
               {busyReset ? "Resetting…" : "Reset Game"}
             </Button>
@@ -238,22 +237,28 @@ export default function GamePage() {
 
       {/* Page layout with sidebar + main content */}
       <Layout
-        sidebar={
+        sidebar={(ctx: { open: boolean; toggle: () => void }) => (
           <Sidebar
             items={[
               { label: "Overview", active: true },
-              { label: "Financials" },
-              { label: "Staffing" },
-              { label: "Operations" },
-              { label: "History" },
+              { label: "Financials", href: "/financials" },
+              { label: "Staffing", href: "/staffing" },
+              { label: "Operations", href: "/operations" },
+              { label: "History", href: "/history" },
             ]}
             footer={
-              <div className="ui-muted" style={{ fontSize: 12 }}>
+              <div className="ui-muted" style={{ fontSize:12 }}>
                 Supabase Realtime + queue worker demo.
               </div>
             }
-          />
-        }
+          >
+            <div className="ui-sidebarToggleRow" style={{ marginTop:14 }}>
+              <button className="ui-btn ghost" onClick={ctx.toggle} aria-label="Collapse sidebar">
+                Hide menu
+              </button>
+            </div>
+          </Sidebar>
+        )}
       >
         {/* Error banner */}
         {err && (

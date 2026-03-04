@@ -17,7 +17,18 @@ function safeCookieNamesFromHeader(cookieHeader: string | null) {
  .filter(Boolean);
 }
 
-export async function GET() {
+function parseLimit(url: URL) {
+ const raw = url.searchParams.get("limit");
+ const n = raw ? Number(raw) : NaN;
+ if (!Number.isFinite(n)) return 4;
+ // Bound to keep payload reasonable.
+ return Math.max(1, Math.min(40, Math.trunc(n)));
+}
+
+export async function GET(req: Request) {
+ const url = new URL(req.url);
+ const limit = parseLimit(url);
+
  const h = await headers();
  const cookieHeader = h.get("cookie");
 
@@ -74,6 +85,7 @@ export async function GET() {
  user_id: userId,
  year:1,
  quarter:1,
+ run_no:1,
  // Spec defaults
  cash:1_000_000,
  engineers:4,
@@ -100,12 +112,15 @@ export async function GET() {
 
  if (!ensuredGame) return new NextResponse("Failed to load game", { status:500 });
 
+ const runNo = Number(ensuredGame.run_no ??1);
+
  const { data: quarters, error: qErr } = await supabase
  .from("quarters")
  .select("*")
  .eq("game_id", ensuredGame.id)
+ .eq("run_no", runNo)
  .order("created_at", { ascending: false })
- .limit(4);
+ .limit(limit);
 
  if (debugEnabled() && qErr) {
  console.error("/api/game db.quarters.select_failed", {
@@ -127,10 +142,12 @@ export async function GET() {
  const insights = computeInsights(ensuredGame, verifiedQuarters);
 
  // Spec wants cumulative profit (sum of net income over all quarters).
+ // Scope to current run so it matches what the dashboard shows.
  const { data: allNet, error: netErr } = await supabase
  .from("quarters")
  .select("net_income")
- .eq("game_id", ensuredGame.id);
+ .eq("game_id", ensuredGame.id)
+ .eq("run_no", runNo);
 
  if (debugEnabled() && netErr) {
  console.error("/api/game db.quarters.select_net_failed", {

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { bridgeSessionToCookies } from "@/lib/authBridge";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -25,19 +26,8 @@ export default function LoginPage() {
         if (error) throw error;
       }
 
-      // SSR bridge: set HttpOnly auth cookies for server route handlers.
-      const { data: sess } = await supabase.auth.getSession();
-      const access_token = sess.session?.access_token;
-      const refresh_token = sess.session?.refresh_token;
-      if (!access_token || !refresh_token) throw new Error("Login succeeded but no session tokens were returned.");
-
-      const r = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ access_token, refresh_token }),
-      });
-      if (!r.ok) throw new Error(await r.text());
+      // Always bridge the session to HttpOnly cookies immediately after auth.
+      await bridgeSessionToCookies();
 
       router.push("/game");
     } catch (e: any) {

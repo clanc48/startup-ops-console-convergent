@@ -1,12 +1,39 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { debugServerEnabled, getSupabasePublicEnv } from "@/lib/env";
 
 type CookieStore = Awaited<ReturnType<typeof cookies>>;
-type CookieToSet = { name: string; value: string; options?: Parameters<CookieStore["set"]>[2] };
+// `cookies().set()` is basically: set(name, value, options).
+// Supabase hands us an array of cookies it wants on the response; we just forward
+// the same `options` shape Next expects so things like `httpOnly`, `secure`,
+// `sameSite`, and expiration don’t get lost.
+type CookieToSet = {
+ name: string;
+ value: string;
+ options?: Parameters<CookieStore["set"]>[2];
+};
 
-// Exchanges client-side tokens for HttpOnly cookies (SSR auth bridge).
-// This enables server routes (e.g. /api/game) to authenticate via cookies().
+function cookieNames(store: CookieStore) {
+ return store.getAll().map((c) => c.name);
+}
+
+/**
+ * SSR auth bridge (client tokens -> server cookies)
+ * -------------------------------------------------
+ * The problem:
+ * - On the client, Supabase Auth can keep the session in browser storage.
+ * - On the server, Route Handlers only see the incoming request (headers/cookies).
+ * They *cannot* read the browser’s local storage, so they don’t automatically
+ * know who the user is.
+ *
+ * The fix:
+ * - The client calls this endpoint once after login (or whenever it gets a fresh session)
+ * and sends `{ access_token, refresh_token }`.
+ * - We ask Supabase to “adopt” that session via `setSession()`.
+ * - Supabase responds by telling us which auth cookies to set (HttpOnly).
+ * - Next.js attaches those cookies to the response.
+ */
 export async function POST(req: Request) {
  let body: any;
  try {
@@ -22,10 +49,15 @@ export async function POST(req: Request) {
  }
 
  const cookieStore = await cookies();
- const supabase = createServerClient(
- process.env.NEXT_PUBLIC_SUPABASE_URL!,
- process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
- {
+ const { NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY } = getSupabasePublicEnv();
+
+ if (debugServerEnabled()) {
+ console.log("/api/auth/session.start", {
+ cookie_names_in: cookieNames(cookieStore),
+ });
+ }
+
+ const supabase = createServerClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
  cookies: {
  getAll() {
  return cookieStore.getAll();
@@ -36,11 +68,24 @@ export async function POST(req: Request) {
  });
  },
  },
- }
- );
+ });
 
  const { error } = await supabase.auth.setSession({ access_token, refresh_token });
- if (error) return new NextResponse(error.message, { status:401 });
+ if (error) {
+ if (debugServerEnabled()) {
+ console.log("/api/auth/session.fail", {
+ message: error.message,
+ cookie_names_out: cookieNames(cookieStore),
+ });
+ }
+ return new NextResponse(error.message, { status:401 });
+ }
+
+ if (debugServerEnabled()) {
+ console.log("/api/auth/session.ok", {
+ cookie_names_out: cookieNames(cookieStore),
+ });
+ }
 
  return NextResponse.json({ ok: true });
 }
