@@ -1,7 +1,6 @@
 ﻿import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { debugServerEnabled, getSupabasePublicEnv } from "@/lib/env";
 
 type CookieStore = Awaited<ReturnType<typeof cookies>>;
 // `cookies().set()` is basically: set(name, value, options).
@@ -13,10 +12,6 @@ type CookieToSet = {
  value: string;
  options?: Parameters<CookieStore["set"]>[2];
 };
-
-function cookieNames(store: CookieStore) {
- return store.getAll().map((c) => c.name);
-}
 
 /**
  * SSR auth bridge (client tokens -> server cookies)
@@ -33,8 +28,23 @@ function cookieNames(store: CookieStore) {
  * - We ask Supabase to “adopt” that session via `setSession()`.
  * - Supabase responds by telling us which auth cookies to set (HttpOnly).
  * - Next.js attaches those cookies to the response.
+ *
+ * End result:
+ * - From then on, your server endpoints can trust `cookies()` for auth.
+ * - Your other routes can use the SSR client and do things like
+ * `supabase.auth.getUser()` without the browser having to resend tokens.
+ *
+ * Payload:
+ * ```json
+ * { "access_token": "...", "refresh_token": "..." }
+ * ```
+ *
+ * Security notes (worth repeating):
+ * - These tokens are credentials. Only send them over HTTPS.
+ * - Don’t log them.
  */
 export async function POST(req: Request) {
+ // Grab JSON from the request. If it’s not valid JSON, we can’t do anything.
  let body: any;
  try {
  body = await req.json();
@@ -42,22 +52,27 @@ export async function POST(req: Request) {
  return new NextResponse("Invalid JSON", { status:400 });
  }
 
+ // We need both tokens:
+ // - access: proves the user right now
+ // - refresh: lets Supabase rotate/refresh when access expires
  const access_token = body?.access_token as string | undefined;
  const refresh_token = body?.refresh_token as string | undefined;
  if (!access_token || !refresh_token) {
  return new NextResponse("Missing access_token/refresh_token", { status:400 });
  }
 
+ // Next.js gives us a request-scoped cookie store.
+ // Think of this as: “read cookies from the request” + “queue cookies to write on the response”.
  const cookieStore = await cookies();
- const { NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY } = getSupabasePublicEnv();
 
- if (debugServerEnabled()) {
- console.log("/api/auth/session.start", {
- cookie_names_in: cookieNames(cookieStore),
- });
- }
-
- const supabase = createServerClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
+ // Wire Supabase’s SSR client into Next’s cookie system.
+ // - `getAll()` lets Supabase read whatever cookies came in.
+ // - `setAll()` is how Supabase tells us what to write back.
+ // (We’re not inventing cookie settings here; we’re relaying what Supabase wants.)
+ const supabase = createServerClient(
+ process.env.NEXT_PUBLIC_SUPABASE_URL!,
+ process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+ {
  cookies: {
  getAll() {
  return cookieStore.getAll();
@@ -68,24 +83,15 @@ export async function POST(req: Request) {
  });
  },
  },
- });
+ }
+ );
 
+ // This is the actual “bridge” step.
+ // If the tokens are bad/expired, Supabase will reject them and we return401.
  const { error } = await supabase.auth.setSession({ access_token, refresh_token });
- if (error) {
- if (debugServerEnabled()) {
- console.log("/api/auth/session.fail", {
- message: error.message,
- cookie_names_out: cookieNames(cookieStore),
- });
- }
- return new NextResponse(error.message, { status:401 });
- }
+ if (error) return new NextResponse(error.message, { status:401 });
 
- if (debugServerEnabled()) {
- console.log("/api/auth/session.ok", {
- cookie_names_out: cookieNames(cookieStore),
- });
- }
-
+ // The main output is the HttpOnly cookies we just set.
+ // Returning `{ ok: true }` just gives the client a simple “yep, done” signal.
  return NextResponse.json({ ok: true });
 }

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { supabaseFromCookies } from "@/lib/supabaseServer";
-import { verifyQuarterRow } from "@/lib/verifyQuarter";
 import { computeInsights } from "@/lib/insights";
 import { enqueueAiSummaryJob } from "@/lib/jobQueue";
 import { requestId, nowMs, logInfo, logError } from "@/lib/observability";
@@ -11,8 +10,6 @@ type SimInput = {
   new_sales: number;
   salary_pct: number;
 };
-
-const OFFICE_CAPACITY = 30;
 
 function isFiniteNumber(n: any): n is number {
   return typeof n === "number" && Number.isFinite(n);
@@ -64,26 +61,6 @@ export async function POST(req: Request) {
     return new NextResponse(v.msg, { status: 400 });
   }
 
-  // Enforce office seat capacity (server-authoritative).
-  const { data: game, error: gameErr } = await supabase
-    .from("games")
-    .select("engineers,sales_staff")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (gameErr || !game) {
-    logError("advance.capacity_load_game_failed", { rid, error: gameErr?.message ?? "no_game" });
-    return new NextResponse("Failed to load game", { status: 500 });
-  }
-
-  const current = Number(game.engineers ?? 0) + Number(game.sales_staff ?? 0);
-  const next = current + v.input.new_engineers + v.input.new_sales;
-  if (next > OFFICE_CAPACITY) {
-    const msg = `Office capacity exceeded: ${next}/${OFFICE_CAPACITY}. Remove staff on Staffing page before hiring more.`;
-    logError("advance.capacity_exceeded", { rid, current, attempted: next, cap: OFFICE_CAPACITY });
-    return new NextResponse(msg, { status: 400 });
-  }
-
   const { data: rpcData, error: rpcErr } = await supabase.rpc("advance_game", {
     p_price: v.input.price,
     p_new_engineers: v.input.new_engineers,
@@ -125,15 +102,10 @@ export async function POST(req: Request) {
         return new NextResponse(`Failed to recover: ${qErr.message}`, { status: 500 });
       }
 
-      const verifiedQuarters = (quarters ?? []).map((q: any) => {
-        const row = { ...q };
-        row.verified = verifyQuarterRow(row);
-        return row;
-      });
-
-      const insights = computeInsights(game as any, verifiedQuarters);
+      const quartersPlain = (quarters ?? []).map((q: any) => ({ ...q }));
+      const insights = computeInsights(game as any, quartersPlain as any);
       logInfo("advance.done", { rid, ms: nowMs() - t0, recovered: true });
-      return NextResponse.json({ game, last_quarters: verifiedQuarters, insights });
+      return NextResponse.json({ game, last_quarters: quartersPlain, insights });
     }
 
     const status =
@@ -147,25 +119,6 @@ export async function POST(req: Request) {
 
   const updatedGame = rpcData[0].game;
   const insertedQuarter = rpcData[0].quarter;
-
-  // Record staffing deltas in an events ledger (authoritative totals incl. removals).
-  try {
-    const de = Number((insertedQuarter as any).new_engineers ??0);
-    const ds = Number((insertedQuarter as any).new_sales ??0);
-    if ((de |0) !==0 || (ds |0) !==0) {
-      await supabase.from("staff_events").insert({
-        game_id: insertedQuarter.game_id,
-        run_no: Number(insertedQuarter.run_no ?? updatedGame.run_no ??1),
-        year: Number(insertedQuarter.year),
-        quarter: Number(insertedQuarter.quarter),
-        delta_engineers: Math.trunc(de),
-        delta_sales: Math.trunc(ds),
-        reason: "hire",
-      });
-    }
-  } catch {
-    // Non-critical: staffing chart can still fall back to estimate.
-  }
 
   const runNo = Number(insertedQuarter.run_no ?? updatedGame.run_no ?? 1);
 
@@ -182,11 +135,7 @@ export async function POST(req: Request) {
     return new NextResponse(`Failed to load quarters: ${qErr.message}`, { status: 500 });
   }
 
-  const verifiedQuarters = (quarters ?? []).map((q: any) => {
-    const row = { ...q };
-    row.verified = verifyQuarterRow(row);
-    return row;
-  });
+  const quartersPlain = (quarters ?? []).map((q: any) => ({ ...q }));
 
   // Enqueue AI summary job for newest quarter (non-blocking)
   try {
@@ -196,9 +145,9 @@ export async function POST(req: Request) {
     logError("advance.job_enqueue_failed", { rid, error: e?.message ?? String(e) });
   }
 
-  const insights = computeInsights(updatedGame, verifiedQuarters);
+  const insights = computeInsights(updatedGame, quartersPlain as any);
 
   logInfo("advance.done", { rid, ms: nowMs() - t0 });
 
-  return NextResponse.json({ game: updatedGame, last_quarters: verifiedQuarters, insights });
+  return NextResponse.json({ game: updatedGame, last_quarters: quartersPlain, insights });
 }

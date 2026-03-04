@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { supabaseFromCookies } from "@/lib/supabaseServer";
-import { verifyQuarterRow } from "@/lib/verifyQuarter";
 
 function asNum(v: any) {
  const n = Number(v);
@@ -35,11 +34,11 @@ export async function GET() {
 
  if (qErr) return new NextResponse(qErr.message, { status:500 });
 
- const verified = (rows ?? []).map((q: any) => ({ ...q, verified: verifyQuarterRow(q) }));
+ const plain = (rows ?? []).map((q: any) => ({ ...q }));
 
  // Group by run_no
  const byRun = new Map<number, any[]>();
- for (const q of verified) {
+ for (const q of plain) {
  const r = Number(q.run_no ??1);
  const arr = byRun.get(r) ?? [];
  arr.push(q);

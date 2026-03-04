@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requestId, nowMs, logInfo, logError } from "@/lib/observability";
 import { generateExecutiveSummary } from "@/lib/aiExecutiveSummary";
-import { verifyQuarterRow } from "@/lib/verifyQuarter";
 import { rateLimit } from "@/lib/rateLimit";
 
 const WORKER_ID = `worker-${process.pid}`;
@@ -121,13 +120,12 @@ export async function POST(req: Request) {
 
     if (lErr) throw new Error(`Failed to load last quarters: ${lErr.message}`);
 
-    const verifiedLast4 = (last4 ?? []).map((q: any) => ({ ...q, verified: verifyQuarterRow(q) }));
-    const verifiedThis = { ...quarter, verified: verifyQuarterRow(quarter) };
+    const last4Plain = (last4 ?? []).map((q: any) => ({ ...q }));
 
     const summary = await generateExecutiveSummary({
       game,
-      quarter: verifiedThis,
-      lastQuarters: verifiedLast4,
+      quarter,
+      lastQuarters: last4Plain,
     });
 
     const { error: updQErr } = await supabaseAdmin

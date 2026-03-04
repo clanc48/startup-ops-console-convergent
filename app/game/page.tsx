@@ -8,7 +8,6 @@ import type { GamePayload } from "@/lib/types";
 import DecisionForm, { DecisionInput } from "@/components/DecisionForm";
 import OfficeGrid from "@/components/OfficeGrid";
 import AdvisorPanel from "@/components/AdvisorPanel";
-import VerifiedBadge from "@/components/VerifiedBadge";
 import ExecutiveSummaryPanel from "@/components/ExecutiveSummaryPanel";
 import JobControlsPanel from "@/components/JobControlsPanel";
 import { useRealtimeQuarters } from "@/components/hooks/useRealtimeQuarters";
@@ -237,7 +236,7 @@ export default function GamePage() {
 
       {/* Page layout with sidebar + main content */}
       <Layout
-        sidebar={(ctx: { open: boolean; toggle: () => void }) => (
+        sidebar={
           <Sidebar
             items={[
               { label: "Overview", active: true },
@@ -247,18 +246,12 @@ export default function GamePage() {
               { label: "History", href: "/history" },
             ]}
             footer={
-              <div className="ui-muted" style={{ fontSize:12 }}>
+              <div className="ui-muted" style={{ fontSize: 12 }}>
                 Supabase Realtime + queue worker demo.
               </div>
             }
-          >
-            <div className="ui-sidebarToggleRow" style={{ marginTop:14 }}>
-              <button className="ui-btn ghost" onClick={ctx.toggle} aria-label="Collapse sidebar">
-                Hide menu
-              </button>
-            </div>
-          </Sidebar>
-        )}
+          />
+        }
       >
         {/* Error banner */}
         {err && (
@@ -333,7 +326,7 @@ export default function GamePage() {
                 <Panel>
                   <Panel.Header title="Performance History" subtitle="Last 4 quarters (newest first)." right={<Badge>Ledger</Badge>} />
                   <Panel.Body>
-                    <Table columns={["Period", "Price", "Revenue", "Payroll", "Net", "Cash End", "Quality", "Verification"]}>
+                    <Table columns={["Period", "Price", "Revenue", "Payroll", "Net", "Cash End", "Quality"]}>
                       {payload.last_quarters.length === 0 ? (
                         <tr>
                           <td colSpan={8} className="ui-muted">No history yet—advance a quarter.</td>
@@ -352,7 +345,6 @@ export default function GamePage() {
                               </td>
                               <td>${Math.round(Number(q.cash_end)).toLocaleString()}</td>
                               <td>{q.quality_end}</td>
-                              <td><VerifiedBadge verified={q.verified} /></td>
                             </tr>
                           );
                         })
