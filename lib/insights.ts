@@ -1,9 +1,7 @@
-
 import type { GameState, QuarterRow } from "@/lib/types";
 
 export type InsightSeverity = "good" | "warn" | "bad" | "info";
 export type InsightKey =
-  | "audit"
   | "runway"
   | "profitability"
   | "quality"
@@ -48,21 +46,6 @@ export function computeInsights(game: GameState, last: QuarterRow[]): Insight[] 
   const pricePrev = prev ? Number(prev.price) : null;
 
   const insights: Insight[] = [];
-
-  if (last.length > 0) {
-    const unverified = last.some((q) => q.verified === false);
-    insights.push({
-      key: "audit",
-      severity: unverified ? "warn" : "good",
-      title: "Audit Integrity",
-      detail: unverified
-        ? "One or more recent quarters failed integrity verification."
-        : "All recent quarters are integrity-verified.",
-      recommendation: unverified
-        ? "Review quarter generation path; ensure only server writes authoritative fields."
-        : "Integrity checks passing. Ledger is consistent.",
-    });
-  }
 
   const runwaySeverity: InsightSeverity =
     runway >= 4 ? "good" : runway >= 2 ? "warn" : "bad";

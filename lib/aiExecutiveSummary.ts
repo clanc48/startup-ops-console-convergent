@@ -17,7 +17,6 @@ export async function generateExecutiveSummary(args: { game: GameState; quarter:
       net_income: quarter.net_income,
       cash_end: quarter.cash_end,
       quality_end: quarter.quality_end,
-      verified: quarter.verified ?? null,
     },
     last4: lastQuarters.slice(0, 4).map((q) => ({
       period: `Y${q.year} Q${q.quarter}`,

@@ -40,7 +40,6 @@ create table if not exists public.quarters (
  quality_end int not null,
 
  integrity_hash text null,
- ai_summary text null,
 
  created_at timestamptz not null default now()
 );
@@ -62,35 +61,12 @@ create index if not exists idx_quarters_game_created on public.quarters(game_id,
 create index if not exists idx_quarters_integrity_hash on public.quarters(integrity_hash);
 create index if not exists idx_quarters_game_run on public.quarters(game_id, run_no, created_at desc);
 
--- Simple jobs table to demonstrate queues/background processing (optional feature)
-create table if not exists public.jobs (
- id uuid primary key default gen_random_uuid(),
- type text not null,
- status text not null default 'queued',
- user_id uuid null references auth.users(id) on delete set null,
- game_id uuid null references public.games(id) on delete set null,
- quarter_id uuid null references public.quarters(id) on delete set null,
- payload jsonb not null default '{}'::jsonb,
- attempts int not null default 0,
- max_attempts int not null default 3,
- locked_at timestamptz null,
- locked_by text null,
- last_error text null,
- created_at timestamptz not null default now(),
- updated_at timestamptz not null default now()
-);
-
-create index if not exists idx_jobs_status_created on public.jobs(status, created_at);
-create index if not exists idx_jobs_type_status on public.jobs(type, status);
-create index if not exists idx_jobs_game on public.jobs(game_id);
-
 -- -----------------------------------------------------------------------------
 -- Row Level Security (RLS)
 -- -----------------------------------------------------------------------------
 
 alter table public.games enable row level security;
 alter table public.quarters enable row level security;
-alter table public.jobs enable row level security;
 
 -- games policies
 
@@ -132,24 +108,6 @@ create policy quarters_insert on public.quarters
 
 -- NOTE: no `quarters_delete` policy.
 -- This keeps the quarters ledger append-only from the perspective of an authenticated user.
-
--- jobs policies
-
-drop policy if exists jobs_select on public.jobs;
-create policy jobs_select on public.jobs
- for select using (user_id = auth.uid());
-
-drop policy if exists jobs_insert on public.jobs;
-create policy jobs_insert on public.jobs
- for insert with check (user_id = auth.uid());
-
-drop policy if exists jobs_update on public.jobs;
-create policy jobs_update on public.jobs
- for update using (user_id = auth.uid()) with check (user_id = auth.uid());
-
-drop policy if exists jobs_delete on public.jobs;
-create policy jobs_delete on public.jobs
- for delete using (user_id = auth.uid());
 
 -- -----------------------------------------------------------------------------
 -- Atomic advance (transaction) + optimistic locking

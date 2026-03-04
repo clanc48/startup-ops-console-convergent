@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
+import { ENABLE_AI } from "@/lib/envFlags";
 import { supabaseFromCookies } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { generateExecutiveSummary } from "@/lib/aiExecutiveSummary";
-import { verifyQuarterRow } from "@/lib/verifyQuarter";
 import { requestId, logInfo, logError } from "@/lib/observability";
 
 /**
@@ -12,6 +12,9 @@ import { requestId, logInfo, logError } from "@/lib/observability";
  * without running the demo worker route.
  */
 export async function POST(req: Request) {
+ // Optional feature: hide endpoint entirely when disabled.
+ if (!ENABLE_AI) return new NextResponse("Not Found", { status:404 });
+
  const rid = requestId();
 
  if (!process.env.OPENAI_API_KEY) {
@@ -74,11 +77,10 @@ export async function POST(req: Request) {
 
  if (lErr) return new NextResponse(`Failed to load last quarters: ${lErr.message}`, { status:500 });
 
- const verifiedLast4 = (last4 ?? []).map((q: any) => ({ ...q, verified: verifyQuarterRow(q) }));
- const verifiedThis = { ...quarter, verified: verifyQuarterRow(quarter) };
+ const last4Plain = (last4 ?? []).map((q: any) => ({ ...q }));
 
  try {
- const summary = await generateExecutiveSummary({ game, quarter: verifiedThis, lastQuarters: verifiedLast4 });
+ const summary = await generateExecutiveSummary({ game, quarter, lastQuarters: last4Plain });
 
  // Write summary using admin client so we can update without relying on a client write policy.
  const { error: updErr } = await supabaseAdmin.from("quarters").update({ ai_summary: summary }).eq("id", quarter.id);

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { headers, cookies } from "next/headers";
 import { supabaseFromCookies } from "@/lib/supabaseServer";
-import { verifyQuarterRow } from "@/lib/verifyQuarter";
 import { computeInsights } from "@/lib/insights";
 
 function debugEnabled() {
@@ -133,13 +132,9 @@ export async function GET(req: Request) {
 
  if (qErr) return new NextResponse(qErr.message, { status:500 });
 
- const verifiedQuarters = (quarters ?? []).map((q: any) => {
- const row = { ...q };
- row.verified = verifyQuarterRow(row);
- return row;
- });
+ const last_quarters = (quarters ?? []).map((q: any) => ({ ...q }));
 
- const insights = computeInsights(ensuredGame, verifiedQuarters);
+ const insights = computeInsights(ensuredGame, last_quarters as any);
 
  // Spec wants cumulative profit (sum of net income over all quarters).
  // Scope to current run so it matches what the dashboard shows.
@@ -162,5 +157,5 @@ export async function GET(req: Request) {
 
  const cumulative_profit = (allNet ?? []).reduce((acc: number, r: any) => acc + Number(r.net_income ??0),0);
 
- return NextResponse.json({ game: ensuredGame, last_quarters: verifiedQuarters, insights, cumulative_profit });
+ return NextResponse.json({ game: ensuredGame, last_quarters, insights, cumulative_profit });
 }

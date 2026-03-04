@@ -12,7 +12,6 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Table } from "@/components/ui/Table";
-import VerifiedBadge from "@/components/VerifiedBadge";
 
 type RunSummary = {
  run_no: number;
@@ -135,7 +134,7 @@ export default function HistoryPage() {
  />
 
  <Layout
- sidebar={(ctx: { open: boolean; toggle: () => void }) => (
+ sidebar={
  <Sidebar
  items={[
  { label: "Overview", href: "/game" },
@@ -149,14 +148,8 @@ export default function HistoryPage() {
  Past runs are separated by run number.
  </div>
  }
- >
- <div className="ui-sidebarToggleRow" style={{ marginTop:14 }}>
- <button className="ui-btn ghost" onClick={ctx.toggle} aria-label="Collapse sidebar">
- Hide menu
- </button>
- </div>
- </Sidebar>
- )}
+ />
+ }
  >
  {err && (
  <Alert tone="bad">
@@ -179,7 +172,7 @@ export default function HistoryPage() {
  {runs.map((r) => (
  <button
  key={r.run_no}
- className={`ui-btn ${r.run_no === (selected?.run_no ?? null) ? "" : "ghost"}`.trim()}
+ className={`ui-btn ${r.run_no === (selected?.run_no ?? null) ? "ui-btn-primary" : "ui-btn-ghost"}`}
  onClick={() => setActiveRun(r.run_no)}
  style={{ cursor: "pointer" }}
  >
@@ -206,7 +199,7 @@ export default function HistoryPage() {
  {!selected ? (
  <div className="ui-muted">No run selected.</div>
  ) : (
- <Table columns={["Period", "Price", "Revenue", "Payroll", "Net", "Cash End", "Quality", "Verification"]}>
+ <Table columns={["Period", "Price", "Revenue", "Payroll", "Net", "Cash End", "Quality"]}>
  {selected.quarters.length ===0 ? (
  <tr>
  <td colSpan={8} className="ui-muted">
@@ -227,9 +220,6 @@ export default function HistoryPage() {
  </td>
  <td>${Math.round(Number(q.cash_end)).toLocaleString()}</td>
  <td>{q.quality_end}</td>
- <td>
- <VerifiedBadge verified={q.verified} />
- </td>
  </tr>
  );
  })

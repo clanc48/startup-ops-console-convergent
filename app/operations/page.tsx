@@ -139,7 +139,7 @@ export default function OperationsPage() {
  />
 
  <Layout
- sidebar={(ctx: { open: boolean; toggle: () => void }) => (
+ sidebar={
  <Sidebar
  items={[
  { label: "Overview", href: "/game" },
@@ -153,14 +153,8 @@ export default function OperationsPage() {
  Operations focuses on quality, pricing, and demand.
  </div>
  }
- >
- <div className="ui-sidebarToggleRow" style={{ marginTop:14 }}>
- <button className="ui-btn ghost" onClick={ctx.toggle} aria-label="Collapse sidebar">
- Hide menu
- </button>
- </div>
- </Sidebar>
- )}
+ />
+ }
  >
  {err && (
  <Alert tone="bad">

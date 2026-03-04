@@ -12,7 +12,7 @@ These extras are not required by the core prompt, but are included to improve re
 
 ### Tooling
 - Linting: `eslint.config.js` + `npm run lint` to catch unused/accidental code and common React hooks issues.
-- ESM mode: `package.json` sets `"type": "module"` so ESLint flat config can run as ESM; `next.config.js` is written in ESM (`export default`).
+- ESM mode: `package.json` sets `"type": "module"` so ESLint flat config can run as ESM; `next.config.js` is written as ESM (`export default`).
 
 Tooling note: `"type": "module"` is intentional. It prevents Node from warning when loading `eslint.config.js` (which uses ESM syntax). Because of that, `next.config.js` is also written in ESM.
 
@@ -26,22 +26,17 @@ AI is optional; the core game loop works without it.
 
 ## What you get (mapped to the spec)
 - Auth + session persistence: Supabase email/password; server routes authenticate via cookies
-- Quarterly decision panel: price, hires (engineers/sales), salary % (1–200; default100)
+- Quarterly decision panel: price, hires (engineers/sales), salary % (1–200; default 100)
 - Advance turn: `POST /api/game/advance` (server-authoritative)
-- Dashboard: cash, revenue, net income, headcount, current quarter + last4 quarters history
-- Office visualization: a30-desk grid that fills by role (E/S); empty desks remain visible
+- Dashboard: cash, revenue, net income, headcount, current quarter + last 4 quarters history
+- Office visualization: a 30-desk grid that fills by role (E/S); empty desks remain visible
 - Win/lose: lose when a quarter ends with `cash_end <=0`; win when completing Y10 Q4 with `cash_end >0` (win screen includes cumulative profit)
-
-### Office capacity + staffing management
-- The office has a hard cap of **30 seats**.
-- Hiring beyond available seats is blocked both client-side and server-side.
-- To free seats, use `/staffing` to remove staff from the current snapshot (server-authoritative via `POST /api/game/staff`).
 
 ## Bonus pages (optional)
 These pages are **not required by the prompt**, but are included as extra views over the same server-authoritative data.
-They all load the same read-only dashboard payload (`GET /api/game?limit=20`) and **do not mutate game state** (except staffing management noted above).
+They all load the same read-only dashboard payload (`GET /api/game?limit=20`) and **do not mutate game state**.
 - `/financials` — revenue/net/cash trend views
-- `/staffing` — headcount/payroll views + staff management (remove staff)
+- `/staffing` — headcount/payroll views
 - `/operations` — operations-focused view (office + quality/runway)
 - `/history` — run history / ledger browsing
 
@@ -53,8 +48,7 @@ They all load the same read-only dashboard payload (`GET /api/game?limit=20`) an
 
 ### Server-authoritative turn advance
 - Client submits decisions → `POST /api/game/advance`
-- Server validates inputs (non-negative numbers, hire counts coerced to integers, `salary_pct` must be1–200)
-- Server enforces office capacity (**30 total staff**) based on the current snapshot
+- Server validates inputs (non-negative numbers, hire counts coerced to integers, `salary_pct` must be 1–200)
 - Server calls a transactional Postgres function `advance_game` which:
  - applies the simulation model in-database
  - inserts a new `quarters` row
@@ -79,11 +73,6 @@ Each quarter row stores a SHA-256 checksum (`quarters.integrity_hash`).
 - Supabase returns Postgres `NUMERIC` values as strings, so verification normalizes numeric text before hashing.
 - This is an audit signal to detect accidental corruption / unexpected mutation; it’s not a substitute for DB security.
 
-### Staffing charts (totals vs hires)
-- The `quarters` ledger stores per-quarter **new hires** (`new_engineers`, `new_sales`), not headcount totals.
-- To make staffing totals **authoritative even after firings**, staffing changes are also recorded to a `staff_events` ledger (positive deltas on hire, negative deltas on removal).
-- The `/staffing` trend chart reconstructs role totals from `staff_events` for the current run (fallback: best-effort estimate if events can’t be loaded).
-
 ### Optional: Jobs + worker (AI executive summaries)
 AI summaries are **not required** for the core simulation.
 - Core game requires: `games` + `quarters`
@@ -97,7 +86,7 @@ Worker security:
 - Dev: worker endpoint is callable without a token (demo convenience)
 - Prod: requires `X-Worker-Token: $WORKER_TOKEN` and applies a small rate limit
 
-## Setup (under5 commands)
+## Setup (under 5 commands)
 ### Windows (recommended)
 ```powershell
 ./scripts/launch.ps1
@@ -130,7 +119,6 @@ Core:
 - `GET /api/game` — get current game (includes `cumulative_profit`)
 - `POST /api/game/advance` — advance one quarter (server-authoritative)
 - `POST /api/game/reset` — reset game
-- `POST /api/game/staff` — remove staff from the current snapshot (free seats)
 
 Optional (AI):
 - `POST /api/ai/notes` — generate/cache `quarters.ai_summary` (convenience endpoint)

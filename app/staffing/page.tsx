@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { upsampleDailyWithJitter } from "@/lib/jitter";
 import type { GamePayload } from "@/lib/types";
-import { computeStaffTotalsByEvents, computeStaffTotalsByQuarterEstimate, type StaffEventRow } from "@/lib/staffing";
 
 import { Shell, Layout, Grid, Stack } from "@/components/ui/layout";
 import { Topbar } from "@/components/ui/Topbar";
@@ -22,13 +21,6 @@ function n(v: any) {
  return Number.isFinite(x) ? x :0;
 }
 
-const OFFICE_CAPACITY =30;
-
-function clampInt(n0: number, min: number, max: number) {
- if (!Number.isFinite(n0)) return min;
- return Math.max(min, Math.min(max, Math.trunc(n0)));
-}
-
 export default function StaffingPage() {
  const router = useRouter();
 
@@ -36,11 +28,6 @@ export default function StaffingPage() {
  const [loading, setLoading] = useState(true);
  const [err, setErr] = useState<string | null>(null);
  const [payload, setPayload] = useState<GamePayload | null>(null);
- const [staffEvents, setStaffEvents] = useState<StaffEventRow[]>([]);
-
- const [busyManage, setBusyManage] = useState(false);
- const [removeEng, setRemoveEng] = useState<number>(0);
- const [removeSales, setRemoveSales] = useState<number>(0);
 
  useEffect(() => {
  let mounted = true;
@@ -75,16 +62,7 @@ export default function StaffingPage() {
  return;
  }
  if (!res.ok) throw new Error(await res.text());
- const json = (await res.json()) as GamePayload;
- setPayload(json);
-
- // Best-effort: load staffing deltas ledger to make headcount totals authoritative.
- try {
- const evRes = await fetch("/api/game/staff-events?limit=200", { cache: "no-store", credentials: "include" });
- if (evRes.ok) setStaffEvents((await evRes.json()) as StaffEventRow[]);
- } catch {
- // ignore
- }
+ setPayload(await res.json());
  } catch (e: any) {
  setErr(e?.message ?? "Failed to load staffing.");
  } finally {
@@ -102,9 +80,6 @@ export default function StaffingPage() {
 
  const game = payload?.game;
  const quarters = useMemo(() => payload?.last_quarters ?? [], [payload?.last_quarters]);
-
- const currentHeadcount = n(game?.engineers) + n(game?.sales_staff);
- const seatsRemaining = Math.max(0, OFFICE_CAPACITY - currentHeadcount);
 
  const metrics = useMemo(() => {
  const engineers = n(game?.engineers);
@@ -158,48 +133,6 @@ export default function StaffingPage() {
  units: n(q.units),
  }));
  }, [quarters]);
-
- async function applyStaffChanges() {
- if (!game) return;
- const curEng = n(game.engineers);
- const curSales = n(game.sales_staff);
- const re = clampInt(removeEng,0, curEng);
- const rs = clampInt(removeSales,0, curSales);
- if (re ===0 && rs ===0) {
- setErr("Choose at least one staff member to remove.");
- return;
- }
-
- const ok = window.confirm(
- `This will remove ${re} engineer(s) and ${rs} sales staff from the current snapshot. Continue?`
- );
- if (!ok) return;
-
- setBusyManage(true);
- setErr(null);
- try {
- const res = await fetch("/api/game/staff", {
- method: "POST",
- headers: { "Content-Type": "application/json" },
- credentials: "include",
- body: JSON.stringify({ remove_engineers: re, remove_sales: rs }),
- });
- if (res.status ===401) {
- router.push("/login");
- return;
- }
- if (!res.ok) throw new Error(await res.text());
-
- // Reload so KPIs + seat capacity update.
- setRemoveEng(0);
- setRemoveSales(0);
- await load();
- } catch (e: any) {
- setErr(e?.message ?? "Failed to update staff.");
- } finally {
- setBusyManage(false);
- }
- }
 
  return (
  <Shell>
@@ -255,150 +188,28 @@ export default function StaffingPage() {
 
  {!loading && payload && game && (
  <Stack>
- <Grid variant="alt">
- <Panel>
- <Panel.Header title="Staff Management" subtitle="Remove staff to free office seats (cap:30)." right={<Badge>Actions</Badge>} />
- <Panel.Body>
- <div className="ui-muted" style={{ fontSize:12, marginBottom:10 }}>
- Seats: <b>{currentHeadcount}</b> / <b>{OFFICE_CAPACITY}</b> • Remaining: <b>{seatsRemaining}</b>
- </div>
-
- <Table columns={["Staffing", "Value"]}>
- <tr>
- <td>Engineers</td>
- <td><b>{Math.round(n(game.engineers)).toLocaleString()}</b></td>
- </tr>
- <tr>
- <td>Sales</td>
- <td><b>{Math.round(n(game.sales_staff)).toLocaleString()}</b></td>
- </tr>
- <tr>
- <td>Blend (E/S)</td>
- <td>
- {(() => {
- const e = n(game.engineers);
- const s = n(game.sales_staff);
- const total = Math.max(1, e + s);
- const ePct = (e / total) *100;
- const sPct = (s / total) *100;
- return (
- <span>
- <b>{ePct.toFixed(0)}%</b> eng / <b>{sPct.toFixed(0)}%</b> sales
- </span>
- );
- })()}
- </td>
- </tr>
- <tr>
- <td>Seniorities (illustrative)</td>
- <td>
- {(() => {
- // We don't store explicit staff seniority in schema, so derive a simple mix
- // from the current game year as a UX hint.
- const e = n(game.engineers);
- const s = n(game.sales_staff);
- const total = e + s;
- const year = n(game.year);
- const srShare = Math.min(0.6, Math.max(0.1, (year -1) *0.07));
- const seniors = Math.round(total * srShare);
- const juniors = Math.max(0, total - seniors);
- return (
- <span>
- <b>{seniors}</b> senior · <b>{juniors}</b> junior
- </span>
- );
- })()}
- </td>
- </tr>
- </Table>
-
- <div style={{ height:12 }} />
-
- <div style={{ display: "grid", gap:10, maxWidth:360 }}>
- <label>
- Remove engineers
- <input
- type="number"
- min={0}
- max={n(game.engineers)}
- step={1}
- disabled={busyManage || game.is_over}
- value={removeEng}
- onChange={(e) => setRemoveEng(clampInt(Number(e.target.value),0, n(game.engineers)))}
- />
- </label>
-
- <label>
- Remove sales
- <input
- type="number"
- min={0}
- max={n(game.sales_staff)}
- step={1}
- disabled={busyManage || game.is_over}
- value={removeSales}
- onChange={(e) => setRemoveSales(clampInt(Number(e.target.value),0, n(game.sales_staff)))}
- />
- </label>
-
- <Button onClick={applyStaffChanges} disabled={busyManage || game.is_over}>
- {busyManage ? "Updating…" : "Apply Changes"}
- </Button>
-
- <div className="ui-muted" style={{ fontSize:12, lineHeight:1.5 }}>
- This updates the current snapshot only (the quarters ledger remains append-only).
- </div>
- </div>
- </Panel.Body>
- </Panel>
- </Grid>
-
  {/* Row1: Staffing trend (full width) */}
  <Grid variant="alt">
  <Panel>
  <Panel.Header title="Staffing Trend" subtitle="Daily trend (jittered)" right={null} />
  <Panel.Body>
  <MultiLineChart
- title="Staffing and payroll"
- subtitle="Payroll, headcount, and units (older → newer)"
+ title="Hiring and payroll"
+ subtitle="Payroll, new hires, and units (older → newer)"
  mode="shared-log"
  series={(() => {
  const ordered = (quarters ?? []).slice().reverse();
  const seedBase = Number(game?.id?.toString?.().split("").reduce((a: number, c: string) => (a + c.charCodeAt(0)) |0,0) ??12345);
  const daysPerPeriod =90;
-
  const payroll = ordered.map((q: any) => n(q.payroll));
+ const hiresEng = ordered.map((q: any) => n(q.new_engineers));
+ const hiresSales = ordered.map((q: any) => n(q.new_sales));
  const units = ordered.map((q: any) => n(q.units));
-
- // Derive staff totals per quarter.
- //
- // Prefer authoritative reconstruction from the staffing events ledger (includes removals).
- // Fallback to an estimate based on quarters if events are missing.
- const totalsByQuarter: { engineers: number; sales: number }[] = (() => {
- if (staffEvents.length >0) {
- // Need a starting point: derive starting snapshot by subtracting all deltas from current.
- const deltaE = staffEvents.reduce((acc, ev) => acc + Number(ev.delta_engineers ??0),0);
- const deltaS = staffEvents.reduce((acc, ev) => acc + Number(ev.delta_sales ??0),0);
- const start = {
- engineers: Math.max(0, n(game?.engineers) - deltaE),
- sales: Math.max(0, n(game?.sales_staff) - deltaS),
- };
- return computeStaffTotalsByEvents({ eventsOldestFirst: staffEvents, start });
- }
-
- return computeStaffTotalsByQuarterEstimate({
- quartersOldestFirst: ordered as any,
- current: { engineers: n(game?.engineers), sales: n(game?.sales_staff) },
- });
- })();
-
- const engTotals = totalsByQuarter.map((t) => t.engineers);
- const salesTotals = totalsByQuarter.map((t) => t.sales);
 
  return [
  { key: "payroll", label: "Payroll", values: upsampleDailyWithJitter(payroll, { seed: seedBase +11, daysPerPeriod, volatility:0.008, smoothness:0.92, meanReversion:0.8, weeklySeasonality:0.1 }), color: "#f59e0b" },
- { key: "eng_total", label: "Engineers", values: upsampleDailyWithJitter(engTotals, { seed: seedBase +12, daysPerPeriod, volatility:0.01, smoothness:0.9, meanReversion:0.7, weeklySeasonality:0.05 }), color: "#7c3aed" },
- { key: "sales_total", label: "Sales", values: upsampleDailyWithJitter(salesTotals, { seed: seedBase +13, daysPerPeriod, volatility:0.01, smoothness:0.9, meanReversion:0.7, weeklySeasonality:0.05 }), color: "#22c55e" },
+ { key: "eng", label: "New Eng", values: upsampleDailyWithJitter(hiresEng, { seed: seedBase +12, daysPerPeriod, volatility:0.06, smoothness:0.65, meanReversion:0.75, weeklySeasonality:0.2 }), color: "#7c3aed" },
+ { key: "sales", label: "New Sales", values: upsampleDailyWithJitter(hiresSales, { seed: seedBase +13, daysPerPeriod, volatility:0.06, smoothness:0.65, meanReversion:0.75, weeklySeasonality:0.2 }), color: "#22c55e" },
  { key: "units", label: "Units", values: upsampleDailyWithJitter(units, { seed: seedBase +14, daysPerPeriod, volatility:0.02, smoothness:0.85, meanReversion:0.6, weeklySeasonality:0.25 }), color: "#0ea5e9" },
  ];
  })()}
@@ -418,8 +229,7 @@ export default function StaffingPage() {
  </Panel.Body>
  </Panel>
  </Grid>
-
- {/* Row3: Run Summary (full width) */}
+ {/* Row34: Run Summary (full width) */}
  <Grid variant="alt">
  <Panel>
  <Panel.Header title="Run Summary (visible quarters)" subtitle="Totals based on quarters currently loaded" right={<Badge>Summary</Badge>} />
@@ -432,8 +242,7 @@ export default function StaffingPage() {
  </Panel.Body>
  </Panel>
  </Grid>
-
- {/* Row4: Key Metrics (70%) + Recent Trend (30%) */}
+ {/* Row 4: Key Metrics (70%) + Recent Trend (30%) */}
  <Grid variant="split7030">
  <Panel>
  <Panel.Header title="Key Metrics" subtitle="Latest quarter" right={<Badge>KPIs</Badge>} />
@@ -473,6 +282,7 @@ export default function StaffingPage() {
  </Panel.Body>
  </Panel>
  </Grid>
+
 
  </Stack>
  )}
