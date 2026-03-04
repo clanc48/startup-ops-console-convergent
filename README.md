@@ -91,7 +91,7 @@ Worker security (when AI is enabled):
 ## Setup (under5 commands)
 
 ### Windows (recommended)
-```powershell
+```
 powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\launch.ps1"
 ```
 The wizard creates/updates `.env.local`, optionally pushes migrations, and starts the app.
