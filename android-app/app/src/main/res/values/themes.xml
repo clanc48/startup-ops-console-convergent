@@ -1,0 +1,1 @@
+<resources><style name="Theme.ServiceFlow" parent="android:style/Theme.Material.Light.NoActionBar"><item name="android:navigationBarColor">#0B1020</item><item name="android:statusBarColor">#0B1020</item><item name="android:windowLightStatusBar">false</item><item name="android:colorAccent">#48D7B0</item></style></resources>
