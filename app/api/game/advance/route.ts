@@ -3,34 +3,16 @@ import { supabaseFromCookies } from "@/lib/supabaseServer";
 import { computeInsights } from "@/lib/insights";
 import { enqueueAiSummaryJob } from "@/lib/jobQueue";
 import { requestId, nowMs, logInfo, logError } from "@/lib/observability";
+import { validateAdvanceInput } from "@/lib/advanceValidation";
 
-type SimInput = {
-  price: number;
-  new_engineers: number;
-  new_sales: number;
-  salary_pct: number;
-};
-
-function isFiniteNumber(n: any): n is number {
-  return typeof n === "number" && Number.isFinite(n);
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-function validate(body: any): { ok: true; input: SimInput } | { ok: false, msg: string } {
-  const { price, new_engineers, new_sales, salary_pct } = body ?? {};
-  if (!isFiniteNumber(price) || price < 0) return { ok: false, msg: "Invalid price" };
-  if (!isFiniteNumber(new_engineers) || new_engineers < 0) return { ok: false, msg: "Invalid new_engineers" };
-  if (!isFiniteNumber(new_sales) || new_sales < 0) return { ok: false, msg: "Invalid new_sales" };
-  if (!isFiniteNumber(salary_pct) || salary_pct < 1 || salary_pct > 200) return { ok: false, msg: "Invalid salary_pct (1-200)" };
-
-  return {
-    ok: true,
-    input: {
-      price,
-      new_engineers: Math.trunc(new_engineers),
-      new_sales: Math.trunc(new_sales),
-      salary_pct,
-    },
-  };
+function rpcCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object" || !("code" in error)) return undefined;
+  const value = (error as { code?: unknown }).code;
+  return typeof value === "string" ? value : undefined;
 }
 
 export async function POST(req: Request) {
@@ -47,7 +29,7 @@ export async function POST(req: Request) {
 
   logInfo("advance.start", { rid, userId });
 
-  let body: any;
+  let body: unknown;
   try {
     body = await req.json();
   } catch {
@@ -55,25 +37,25 @@ export async function POST(req: Request) {
     return new NextResponse("Invalid JSON", { status: 400 });
   }
 
-  const v = validate(body);
-  if (!v.ok) {
-    logError("advance.invalid_input", { rid, msg: v.msg });
-    return new NextResponse(v.msg, { status: 400 });
+  const validated = validateAdvanceInput(body);
+  if (!validated.ok) {
+    logError("advance.invalid_input", { rid, msg: validated.msg });
+    return new NextResponse(validated.msg, { status: 400 });
   }
 
   const { data: rpcData, error: rpcErr } = await supabase.rpc("advance_game", {
-    p_price: v.input.price,
-    p_new_engineers: v.input.new_engineers,
-    p_new_sales: v.input.new_sales,
-    p_salary_pct: v.input.salary_pct,
+    p_price: validated.input.price,
+    p_new_engineers: validated.input.new_engineers,
+    p_new_sales: validated.input.new_sales,
+    p_salary_pct: validated.input.salary_pct,
   });
 
   if (rpcErr || !rpcData || !rpcData[0]) {
     const msg = rpcErr?.message ?? "unknown";
-    const code = (rpcErr as any)?.code;
+    const code = rpcCode(rpcErr);
 
-    // Graceful recovery: if the DB says we already advanced this period (double-submit,
-    // retry, multi-tab), just return the current state so the client can update.
+    // Duplicate submissions and multi-tab races are recoverable: the database is
+    // authoritative, so return the current state rather than repeating the mutation.
     if (msg === "CONCURRENT_ADVANCE") {
       logInfo("advance.concurrent_recovered", { rid });
 
@@ -84,42 +66,42 @@ export async function POST(req: Request) {
         .maybeSingle();
 
       if (gameErr || !game) {
-        logError("advance.concurrent_load_game_failed", { rid, error: gameErr?.message ?? "no_game" });
-        return new NextResponse(`Failed to recover: ${gameErr?.message ?? "game_not_found"}`, { status: 500 });
+        logError("advance.concurrent_load_game_failed", {
+          rid,
+          error: gameErr?.message ?? "game_not_found",
+        });
+        return new NextResponse("Unable to recover current state", { status: 500 });
       }
 
-      const runNo = Number((game as any).run_no ?? 1);
+      const runNo = Number(game.run_no ?? 1);
       const { data: quarters, error: qErr } = await supabase
         .from("quarters")
         .select("*")
-        .eq("game_id", (game as any).id)
+        .eq("game_id", game.id)
         .eq("run_no", runNo)
         .order("created_at", { ascending: false })
         .limit(20);
 
       if (qErr) {
         logError("advance.concurrent_load_quarters_failed", { rid, error: qErr.message });
-        return new NextResponse(`Failed to recover: ${qErr.message}`, { status: 500 });
+        return new NextResponse("Unable to recover current state", { status: 500 });
       }
 
-      const quartersPlain = (quarters ?? []).map((q: any) => ({ ...q }));
-      const insights = computeInsights(game as any, quartersPlain as any);
+      const quartersPlain = (quarters ?? []).map((quarter) => ({ ...quarter }));
+      const insights = computeInsights(game, quartersPlain);
       logInfo("advance.done", { rid, ms: nowMs() - t0, recovered: true });
       return NextResponse.json({ game, last_quarters: quartersPlain, insights });
     }
 
-    const status =
-      code === "P0002" ? 404 :
-      code === "P0001" ? 409 :
-      code === "23505" ? 409 :
-      500;
-    logError("advance.rpc_failed", { rid, error: msg, status });
-    return new NextResponse(`Failed to advance: ${msg}`, { status });
+    const status = code === "P0002" ? 404 : code === "P0001" || code === "23505" ? 409 : 500;
+    logError("advance.rpc_failed", { rid, error: msg, status, code });
+
+    const clientMessage = status === 404 ? "Game not found" : status === 409 ? "Game state changed; refresh and retry" : "Unable to advance game";
+    return new NextResponse(clientMessage, { status });
   }
 
   const updatedGame = rpcData[0].game;
   const insertedQuarter = rpcData[0].quarter;
-
   const runNo = Number(insertedQuarter.run_no ?? updatedGame.run_no ?? 1);
 
   const { data: quarters, error: qErr } = await supabase
@@ -132,21 +114,25 @@ export async function POST(req: Request) {
 
   if (qErr) {
     logError("advance.load_quarters_failed", { rid, error: qErr.message });
-    return new NextResponse(`Failed to load quarters: ${qErr.message}`, { status: 500 });
+    return new NextResponse("Unable to load updated history", { status: 500 });
   }
 
-  const quartersPlain = (quarters ?? []).map((q: any) => ({ ...q }));
+  const quartersPlain = (quarters ?? []).map((quarter) => ({ ...quarter }));
 
-  // Enqueue AI summary job for newest quarter (non-blocking)
+  // Optional AI work is deliberately non-blocking; the authoritative game mutation
+  // has already committed and must not fail because a bonus feature is unavailable.
   try {
-    await enqueueAiSummaryJob({ user_id: userId, game_id: insertedQuarter.game_id, quarter_id: insertedQuarter.id });
+    await enqueueAiSummaryJob({
+      user_id: userId,
+      game_id: insertedQuarter.game_id,
+      quarter_id: insertedQuarter.id,
+    });
     logInfo("advance.job_enqueued", { rid, job: "ai_summary", quarter_id: insertedQuarter.id });
-  } catch (e: any) {
-    logError("advance.job_enqueue_failed", { rid, error: e?.message ?? String(e) });
+  } catch (error: unknown) {
+    logError("advance.job_enqueue_failed", { rid, error: errorMessage(error) });
   }
 
-  const insights = computeInsights(updatedGame, quartersPlain as any);
-
+  const insights = computeInsights(updatedGame, quartersPlain);
   logInfo("advance.done", { rid, ms: nowMs() - t0 });
 
   return NextResponse.json({ game: updatedGame, last_quarters: quartersPlain, insights });
