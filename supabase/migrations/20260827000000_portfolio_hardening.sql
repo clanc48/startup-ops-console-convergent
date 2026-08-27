@@ -9,13 +9,26 @@ drop policy if exists jobs_insert on public.jobs;
 drop policy if exists jobs_update on public.jobs;
 drop policy if exists jobs_delete on public.jobs;
 
--- The current application always creates fully-owned jobs. Make that contract
--- explicit at the database boundary.
+-- The initial exercise allowed job ownership references to become NULL on parent
+-- deletion. The hardened queue treats a job as useful only while its owner, game,
+-- and quarter still exist, so use cascading cleanup instead.
+alter table public.jobs drop constraint if exists jobs_user_id_fkey;
+alter table public.jobs drop constraint if exists jobs_game_id_fkey;
+alter table public.jobs drop constraint if exists jobs_quarter_id_fkey;
+
+-- Fresh clones have no rows at migration time. If adapting an existing database,
+-- clean or reconcile orphaned queue rows before applying these NOT NULL changes.
 alter table public.jobs alter column user_id set not null;
 alter table public.jobs alter column game_id set not null;
 alter table public.jobs alter column quarter_id set not null;
 
 alter table public.jobs
+  add constraint jobs_user_id_fkey
+    foreign key (user_id) references auth.users(id) on delete cascade,
+  add constraint jobs_game_id_fkey
+    foreign key (game_id) references public.games(id) on delete cascade,
+  add constraint jobs_quarter_id_fkey
+    foreign key (quarter_id) references public.quarters(id) on delete cascade,
   add constraint jobs_attempts_nonnegative check (attempts >= 0),
   add constraint jobs_max_attempts_positive check (max_attempts > 0),
   add constraint jobs_attempts_within_reasonable_bound check (max_attempts <= 20),
