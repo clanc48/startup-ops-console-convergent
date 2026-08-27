@@ -75,7 +75,7 @@ export default function GamePage() {
     setLoading(true);
     try {
       const res = await fetch("/api/game", { cache: "no-store", credentials: "include" });
-      if (res.status ===401) {
+      if (res.status === 401) {
         router.push("/login");
         return;
       }
@@ -116,7 +116,7 @@ export default function GamePage() {
         credentials: "include",
         body: JSON.stringify(input),
       });
-      if (res.status ===401) {
+      if (res.status === 401) {
         router.push("/login");
         return;
       }
@@ -132,15 +132,29 @@ export default function GamePage() {
   }
 
   // --- Logout button handler ---
+  // The browser session and the SSR/HttpOnly session are separate stores. Clear
+  // the server cookies first, then clear the browser session so logout is complete.
   async function logout() {
-    await supabase.auth.signOut();
-    router.push("/login");
+    setErr(null);
+    try {
+      const res = await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Server logout failed.");
+
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+
+      router.replace("/login");
+      router.refresh();
+    } catch (e: any) {
+      setErr(e?.message ?? "Logout failed.");
+    }
   }
 
   // --- Reset button handler ---
-  // This is the "wipe the game" button.
-  // It deletes the quarter history + queued jobs and resets the snapshot back
-  // to the starting state.
+  // Archive the current run and reset the snapshot while preserving history.
   async function resetGame() {
     if (!payload?.game) return;
 
@@ -153,7 +167,7 @@ export default function GamePage() {
     setBusyReset(true);
     try {
       const res = await fetch("/api/game/reset", { method: "POST", credentials: "include" });
-      if (res.status ===401) {
+      if (res.status === 401) {
         router.push("/login");
         return;
       }
