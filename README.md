@@ -1,141 +1,186 @@
-# Startup Ops Console (Option A) — v2
+# Startup Ops Console
 
-## Write-up (≤200 words)
-This project implements a single-player, turn-based startup simulation (one “turn” = one quarter). The player sets price, hiring, and salary strategy, then advances the quarter to see updated financials, headcount, and an office visualization. All simulation outcomes are computed and persisted server-side so the client can’t fudge the numbers.
+> **Archived technical exercise / public code sample**  
+> This repository is retained for architecture and code-review purposes. It is **not currently deployed**, does not represent an active production service, and should be run only against a Supabase project you control.
 
-One technical decision I stand behind: modeling state as an immutable `quarters` ledger plus a `games` snapshot. The ledger makes it easy to debug and chart history while the snapshot keeps dashboard reads fast and simple. Both are updated together via a single transactional Postgres function (`advance_game`), which avoids partial writes and keeps the UI consistent.
+Startup Ops Console is a single-player, turn-based startup simulation built with Next.js, TypeScript, Supabase/PostgreSQL, and optional AI summaries. A player chooses price, hiring, and salary strategy; the server advances one quarter and persists the resulting financial and staffing state.
 
-If I had more time, I’d tighten the auth bridge flow so it’s harder to misconfigure across environments and add more robust job scheduling/observability.
+The useful part of this repository is not the game theme. It is the implementation of several application-engineering concerns in a compact, inspectable project: server-authoritative state, transactional database mutation, row-level access controls, session handoff between browser and server routes, concurrency handling, append-only history, background work, and explicit operational tradeoffs.
 
-## Non-core additions (intentional)
-These extras are not required by the core prompt, but are included to improve reviewability and UX.
+## Review status
 
-### Tooling
-- Linting: `eslint.config.js` + `npm run lint` to catch unused/accidental code and common React hooks issues.
-- ESM mode: `package.json` sets `"type": "module"` so ESLint flat config can run as ESM; `next.config.js` is written as ESM (`export default`).
+The original project was created as a technical exercise and later retained as a portfolio sample. A portfolio-hardening pass adds:
 
-Tooling note: `"type": "module"` is intentional. It prevents Node from warning when loading `eslint.config.js` (which uses ESM syntax). Because of that, `next.config.js` is also written in ESM.
+- explicit archived/non-hosted status;
+- server-side logout so browser and server sessions are cleared together;
+- service-only background-job access with database and worker ownership validation;
+- stale worker-lock recovery;
+- bounded AI-summary requests;
+- stable client-facing error messages while preserving detailed server logs;
+- unit tests for input validation and rate limiting;
+- GitHub Actions lint/typecheck/test/build verification;
+- migrations as the single authoritative database definition.
 
-### Next.js runtime glue
-- `proxy.ts` replaces the deprecated `middleware.ts` convention in Next16+. It refreshes Supabase SSR auth cookies so server routes can reliably read sessions.
+This remains a **code sample**, not a claim that a small take-home project has the same operational controls as a regulated or high-scale production service.
 
-### Optional AI workflow (disabled by default)
-AI is optional; the core game loop works without it.
-
-- `POST /api/ai/notes` generates (and caches) `quarters.ai_summary` for a given quarter.
-- `POST /api/jobs/worker` processes `jobs` of type `ai_summary` and writes `quarters.ai_summary`.
-
-AI is gated behind `ENABLE_AI` (see `lib/envFlags.ts`). When disabled, AI endpoints return `404`.
-
-## What you get (mapped to the spec)
-- Auth + session persistence: Supabase email/password; server routes authenticate via cookies
-- Quarterly decision panel: price, hires (engineers/sales), salary % (1–200; default100)
-- Advance turn: `POST /api/game/advance` (server-authoritative)
-- Dashboard: cash, revenue, net income, headcount, current quarter + last4 quarters history
-- Office visualization: a30-desk grid that fills by role (E/S); empty desks remain visible
-- Win/lose: lose when a quarter ends with `cash_end <=0`; win when completing Y10 Q4 with `cash_end >0` (win screen includes cumulative profit)
-
-## Bonus pages (optional)
-These pages are **not required by the prompt**, but are included as extra views over the same server-authoritative data.
-
-They all load the same read-only dashboard payload (`GET /api/game?limit=20`) and **do not mutate game state**.
-
-- `/financials` — revenue/net/cash trend views
-- `/staffing` — headcount/payroll views
-- `/operations` — operations-focused view (office + quality/runway)
-- `/history` — run history / ledger browsing
-
-## How it works (architecture)
+## Architecture
 
 ### Data model
-- `games`: current snapshot (fast reads for the dashboard)
-- `quarters`: immutable-ish history/ledger (charts + analytics)
-- `jobs`: optional background queue (AI summaries only)
 
-### Server-authoritative turn advance
-- Client submits decisions → `POST /api/game/advance`
-- Server validates inputs (non-negative numbers, hire counts coerced to integers, `salary_pct` must be1–200)
-- Server calls a transactional Postgres function `advance_game` which:
- - applies the simulation model in-database
- - inserts a new `quarters` row
- - updates the `games` snapshot
- - enforces win/lose rules
+- `games` — current state snapshot for fast dashboard reads.
+- `quarters` — historical quarter ledger. Authenticated application users do not receive a delete policy.
+- `jobs` — internal service queue for optional AI summaries; direct authenticated-client policies are intentionally absent.
 
-Model fidelity:
-- Model: implements the assignment prompt’s formulas and constants exactly (including industry average salary = $30,000/quarter/employee and hire cost = $5,000 per hire).
-- Constants changed: none.
+### Server-authoritative state changes
+
+The browser submits decisions to `POST /api/game/advance`. The route validates untrusted input and calls the transactional PostgreSQL function `advance_game`.
+
+The database function:
+
+1. locates and locks the authenticated user's game row;
+2. normalizes the accepted input range;
+3. computes the quarter result;
+4. inserts one historical `quarters` row;
+5. updates the current `games` snapshot;
+6. uses uniqueness/locking semantics to reject duplicate concurrent advances.
+
+This keeps the mutation authoritative on the server/database instead of trusting values computed by the client.
+
+### Authentication
+
+Supabase browser authentication is bridged into SSR-compatible HttpOnly cookies so server routes can authenticate requests. Logout also calls a server route before clearing the browser session, preventing the browser and server session stores from intentionally drifting apart.
+
+### Row-level security
+
+`games` and `quarters` use PostgreSQL RLS to constrain records to the authenticated user. The optional `jobs` table is treated as an internal service queue: background jobs are created and processed through server-side service-role code, while a hardening migration validates the `user_id` → `game_id` → `quarter_id` ownership chain.
+
+### Background work
+
+Optional AI summaries are queued separately from the authoritative game mutation. Failure to enqueue or generate a summary does not roll back the already-completed quarter.
+
+The demo worker uses a conditional claim and records `locked_at` / `locked_by`. It also recovers stale `running` jobs after a bounded lease period. For a true multi-instance production workload, I would move claiming into a database function/queue primitive and use shared rate limiting/observability rather than this intentionally small implementation.
 
 ### Realtime UI
-The UI subscribes to Supabase Realtime Postgres changes, so new quarters / snapshot updates appear without a full refresh. Realtime is for UX only; the server/DB remains the source of truth.
 
-### Auth bridge (client tokens → HttpOnly cookies)
-Client-side Supabase sessions live in browser storage, but server routes can’t read that.
+The UI can subscribe to Supabase Realtime changes and refresh from server-authoritative state. Realtime is a presentation/refresh mechanism, not the source of truth.
 
-- Client calls `POST /api/auth/session` with `{ access_token, refresh_token }`
-- Server validates/adopts the session via Supabase, then sets Supabase’s auth cookies
-- After that, server endpoints authenticate via `cookies()`
+## Security boundaries
 
-### Optional: Jobs + worker (AI executive summaries)
-AI summaries are **not required** for the core simulation.
+The repository intentionally distinguishes between client and privileged server capabilities:
 
-- Core game requires: `games` + `quarters`
-- Optional AI summaries use: `jobs` + `quarters.ai_summary`
+- service-role credentials are loaded only in server modules;
+- `.env.local` is ignored and the checked-in environment file contains placeholders only;
+- debug logging avoids printing cookie/token values;
+- background jobs are not directly writable by authenticated clients after the hardening migration;
+- worker and AI endpoints require production controls before use;
+- AI is disabled by default;
+- request inputs are validated before state mutation;
+- database RLS remains an enforcement layer even when application routes already scope queries.
 
-When enabled:
-- Advancing a quarter enqueues an `ai_summary` job in `jobs`
-- `POST /api/jobs/worker` processes queued jobs and writes `quarters.ai_summary`
+If adapting this to a higher-risk production system, I would additionally use a shared/distributed rate limiter, managed queue/lease semantics, stronger end-to-end auth tests, dependency/security scanning, structured telemetry, and deployment-specific security headers at the application or edge layer.
 
-Worker security (when AI is enabled):
-- Production deployments should require `X-Worker-Token: $WORKER_TOKEN` and enforce rate limiting.
+## Verification
 
-## Setup (under5 commands)
+The repository includes a small automated verification contract:
 
-### Windows (recommended)
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\launch.ps1"
-```
-The wizard creates/updates `.env.local`, optionally pushes migrations, and starts the app.
 
-### Manual setup (any OS) — still ≤5 commands
+Or run all four:
+
+```bash
+npm run verify
+```
+
+GitHub Actions executes the same verification on pushes and pull requests.
+
+## Running locally
+
+Requirements:
+
+- Node.js 22+
+- a Supabase project you control
+- Supabase CLI if you want to apply the included migrations
+
+Install and configure:
+
 ```bash
 npm install
 cp .env.local.example .env.local
-# edit .env.local with your Supabase keys
+# edit .env.local with your own Supabase project values
 npx supabase link --project-ref <YOUR_PROJECT_REF>
 npx supabase db push --include-all --yes
 npm run dev
 ```
 
-## Environment variables
+Windows users can also use the included PowerShell launch helper.
+
+### Environment variables
 
 Client-safe:
+
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 
 Server-only:
+
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `OPENAI_API_KEY` (optional; only if you want AI summaries)
-- `WORKER_TOKEN` (only required in production for the worker endpoint)
+- `OPENAI_API_KEY` — optional
+- `WORKER_TOKEN` — required if the demo worker is exposed in a production-mode deployment
 
 Feature flags:
-- `ENABLE_AI` (default `false`; required to expose AI endpoints)
 
-## API quick reference
+- `ENABLE_AI` — defaults to disabled
+
+Never reuse credentials from a historical deployment. Use keys from a Supabase project you control.
+
+## API overview
 
 Core:
-- `POST /api/auth/session` — token → cookie bridge for SSR/server routes
-- `GET /api/game` — get current game (includes `cumulative_profit`)
-- `POST /api/game/advance` — advance one quarter (server-authoritative)
-- `POST /api/game/reset` — reset game
 
-Optional (AI):
-- `POST /api/ai/notes` — generate/cache `quarters.ai_summary`
-- `POST /api/jobs/worker` — process one queued job
+- `POST /api/auth/session` — adopts browser auth into SSR cookies.
+- `POST /api/auth/logout` — clears the server session/cookies.
+- `GET /api/game` — returns the current snapshot, recent history, and derived insights.
+- `POST /api/game/advance` — validates input and advances one quarter transactionally.
+- `POST /api/game/reset` — starts a new run while preserving historical quarters.
 
-## Tradeoffs / descopes
-- Worker scheduling is intentionally minimal: local runs are manual; production expects an external scheduler/cron.
-- Office visualization prioritizes clarity (role split + empty capacity) over detailed art.
+Optional AI workflow:
 
-## Known issues / notes
-- Supabase PostgREST schema cache can lag right after migrations; the launch wizard includes retries when verifying tables.
-- `POST /api/close` is a dev-only utility endpoint (returns404 in production).
+- `POST /api/ai/notes` — generates/caches a summary for an owned quarter when AI is enabled.
+- `POST /api/jobs/worker` — processes one queued summary job; intended as a demonstrator, not a hosted queue service.
+
+## Design decisions worth reviewing
+
+### Snapshot + ledger
+
+`games` holds the current state while `quarters` preserves period history. This makes dashboard reads straightforward without sacrificing an auditable sequence of prior results.
+
+### Transactional mutation
+
+`advance_game` inserts history and updates the snapshot within one database transaction. A row lock plus a unique game/run/year/quarter key protects against duplicate concurrent advances.
+
+### Defense in depth
+
+Application routes authenticate and scope requests, while PostgreSQL RLS and relationship validation protect the persistence boundary. The service-role worker re-checks job ownership before using privileged access.
+
+### Optional features stay optional
+
+AI summary generation is feature-gated and asynchronous. Core simulation behavior does not depend on an external model provider.
+
+## Intentional limitations
+
+This is an archived portfolio project. Notable limitations are documented rather than hidden:
+
+- the in-memory rate limiter is process-local and should be replaced by Redis/edge/shared storage for multi-instance deployments;
+- the worker is a compact queue demonstrator rather than a managed distributed-job system;
+- there is no active hosted demo;
+- tests focus on high-value pure behavior rather than providing comprehensive browser/E2E coverage;
+- deployment-specific headers and perimeter controls depend on the environment in which a clone is hosted.
+
+## Repository purpose
+
+This repository is public so a technical reviewer can inspect implementation choices without being given access to proprietary Lancaster Solutions codebases. More complex production architecture can be discussed separately through a controlled technical walkthrough.
