@@ -12,9 +12,9 @@ jobs:
     env:
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_screenshot_only
-      SUPABASE_SERVICE_ROLE_KEY: screenshot-only-not-connected
+      SUPABASE_SERVICE_ROLE_KEY: portfolio-test-service-role-key
       ENABLE_AI: "false"
-      NODE_ENV: production
+      WORKER_TOKEN: portfolio-test-worker-token
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
